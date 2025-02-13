@@ -10,29 +10,31 @@ use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
 {
-    public function register(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => ['required', Password::defaults()],
-        ]);
+public function register(Request $request)
+{
+    $request->validate([
+        'name' => 'required|string|max:255',
+        'email' => 'required|string|email|max:255|unique:users',
+        'password' => 'required',
+    ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-        ]);
+    $user = User::create([
+        'name' => $request->name,
+        'email' => $request->email,
+        'password' => Hash::make($request->password),
+    ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+    $token = $user->createToken('auth_token')->plainTextToken;
 
-        $cookie = cookie('auth_token', $token, 60 * 24 * 30); // 30 days
+    $cookie = cookie('auth_token', $token, 60 * 24 * 30); // 30 days
 
-        return response()->json([
-            'message' => 'User registered successfully',
-            'user' => $user
-        ])->withCookie($cookie);
-    }
+    return response()->json([
+        'message' => 'User registered successfully',
+        'status' => 200,
+        'user' => $user,
+        'token' => $token  // Add this line to include token in response
+    ]);
+}
 
     public function login(Request $request)
     {
@@ -51,12 +53,14 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        $cookie = cookie('auth_token', $token, 60 * 24 * 30); // 30 days
+
 
         return response()->json([
             'message' => 'Logged in successfully',
-            'user' => $user
-        ])->withCookie($cookie);
+            'status' => 200,
+            'user' => $user,
+            'token' => $token
+        ]);
     }
 
     public function logout(Request $request)
@@ -64,7 +68,8 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json([
-            'message' => 'Logged out successfully'
-        ])->withCookie(Cookie::forget('auth_token'));
+            'message' => 'Logged out successfully',
+            'status' => 200
+        ]);
     }
 }
