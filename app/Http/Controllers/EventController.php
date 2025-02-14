@@ -93,7 +93,7 @@ public function update(Request $request, $id)
             'startDate'    => 'required|date',
             'endDate'      => 'required|date',
             'participants' => 'sometimes|array',
-            'completed'    => 'sometimes|boolean', // New validation rule for completed status
+            'completed'    => 'sometimes|boolean',
         ]);
 
         $event = Event::updateOrCreate(
@@ -106,7 +106,7 @@ public function update(Request $request, $id)
                 'created_by'        => Auth::id(),
                 'startDate'         => $validated['startDate'],
                 'endDate'           => $validated['endDate'],
-                'completed'         => $validated['completed'] ?? false, // Set completed status
+                'completed'         => $validated['completed'] ?? false,
             ]
         );
 
@@ -119,7 +119,7 @@ public function update(Request $request, $id)
                 ]);
             }
         }
-        
+
 
         return response()->json([
             'message' => 'Event updated successfully',
