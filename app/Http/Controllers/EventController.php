@@ -84,47 +84,52 @@ class EventController extends Controller
         return response()->json($event);
     }
 
-    public function update(Request $request, $id)
-    {
-        try {
-            $validated = $request->validate([
-                'id'           => 'required|numeric',
-                'name'         => 'required|string|max:255',
-                'startDate'    => 'required|date',
-                'endDate'      => 'required|date',
-                'participants' => 'sometimes|array',
-            ]);
+public function update(Request $request, $id)
+{
+    try {
+        $validated = $request->validate([
+            'id'           => 'required|numeric',
+            'name'         => 'required|string|max:255',
+            'startDate'    => 'required|date',
+            'endDate'      => 'required|date',
+            'participants' => 'sometimes|array',
+            'completed'    => 'sometimes|boolean', // New validation rule for completed status
+        ]);
 
-            $event = Event::updateOrCreate(
-                ['event_reminder_id_from_browser' => $id,
-                 'created_by'=> Auth::user()->id,
-                ],
-                [
-                    'event_reminder_id' => 'EVT-' . $validated['id'],
-                    'name'              => $validated['name'],
-                    'created_by'        => Auth::id(),
-                    'startDate'         => $validated['startDate'],
-                    'endDate'           => $validated['endDate'],
-                ]
-            );
-            if ($request->has('participants')) {
-                $event->participants()->delete();
-                foreach ($request->participants as $participant) {
-                    $event->participants()->create([
-                        'participant_email' => $participant,
-                        'created_by'        => Auth::user()->id,
-                    ]);
-                }
+        $event = Event::updateOrCreate(
+            ['event_reminder_id_from_browser' => $id,
+             'created_by'=> Auth::user()->id,
+            ],
+            [
+                'event_reminder_id' => 'EVT-' . $validated['id'],
+                'name'              => $validated['name'],
+                'created_by'        => Auth::id(),
+                'startDate'         => $validated['startDate'],
+                'endDate'           => $validated['endDate'],
+                'completed'         => $validated['completed'] ?? false, // Set completed status
+            ]
+        );
+
+        if ($request->has('participants')) {
+            $event->participants()->delete();
+            foreach ($request->participants as $participant) {
+                $event->participants()->create([
+                    'participant_email' => $participant,
+                    'created_by'        => Auth::user()->id,
+                ]);
             }
-            return response()->json([
-                'message' => 'Event updated successfully',
-                'status'  => 200,
-                'data'    => $event,
-            ]);
-        } catch (ValidationException $e) {
-            return response()->json(['error' => $e->validator->errors()], 422);
         }
+        
+
+        return response()->json([
+            'message' => 'Event updated successfully',
+            'status'  => 200,
+            'data'    => $event,
+        ]);
+    } catch (ValidationException $e) {
+        return response()->json(['error' => $e->validator->errors()], 422);
     }
+}
 
     public function destroy($id)
     {
