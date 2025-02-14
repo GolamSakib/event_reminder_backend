@@ -27,6 +27,7 @@ class SendEventEmails extends Command
         $events = Event::where('startDate', '<=', now()->addMinutes(5))
                        ->where('is_notification_sent', 0)
                        ->get();
+                       
 
         foreach ($events as $event) {
             foreach ($event->participants as $participant) {
