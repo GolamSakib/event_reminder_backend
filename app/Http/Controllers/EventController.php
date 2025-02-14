@@ -11,8 +11,8 @@ class EventController extends Controller
     public function index()
     {
         $events = Event::with('participants')
-        ->orderBy('event_reminder_id_from_browser')
-        ->get();
+            ->orderBy('event_reminder_id_from_browser')
+            ->get();
 
         $formattedEvents = $events->map(function ($event) {
             return [
@@ -84,51 +84,58 @@ class EventController extends Controller
         return response()->json($event);
     }
 
-public function update(Request $request, $id)
-{
-    try {
-        $validated = $request->validate([
-            'id'           => 'required|numeric',
-            'name'         => 'required|string|max:255',
-            'startDate'    => 'required|date',
-            'endDate'      => 'required|date',
-            'participants' => 'sometimes|array',
-        ]);
+    public function update(Request $request, $id)
+    {
+        try {
+            $validated = $request->validate([
+                'id'           => 'required|numeric',
+                'name'         => 'required|string|max:255',
+                'startDate'    => 'required|date',
+                'endDate'      => 'required|date',
+                'participants' => 'sometimes|array',
+            ]);
 
-        $event = Event::updateOrCreate(
-            ['event_reminder_id_from_browser' => $id],
-            [
-                'event_reminder_id' => 'EVT-' . $validated['id'],
-                'name'              => $validated['name'],
-                'created_by'        => Auth::id(),
-                'startDate'         => $validated['startDate'],
-                'endDate'           => $validated['endDate'],
-            ]
-        );
-        if ($request->has('participants')) {
-            $event->participants()->delete();
-            foreach ($request->participants as $participant) {
-                $event->participants()->create([
-                    'participant_email' => $participant,
-                    'created_by'        => Auth::user()->id,
-                ]);
+            $event = Event::updateOrCreate(
+                ['event_reminder_id_from_browser' => $id,
+                 'created_by'=> Auth::user()->id,
+                ],
+                [
+                    'event_reminder_id' => 'EVT-' . $validated['id'],
+                    'name'              => $validated['name'],
+                    'created_by'        => Auth::id(),
+                    'startDate'         => $validated['startDate'],
+                    'endDate'           => $validated['endDate'],
+                ]
+            );
+            if ($request->has('participants')) {
+                $event->participants()->delete();
+                foreach ($request->participants as $participant) {
+                    $event->participants()->create([
+                        'participant_email' => $participant,
+                        'created_by'        => Auth::user()->id,
+                    ]);
+                }
             }
-        }
             return response()->json([
                 'message' => 'Event updated successfully',
                 'status'  => 200,
                 'data'    => $event,
             ]);
-    } catch (ValidationException $e) {
-        return response()->json(['error' => $e->validator->errors()], 422);
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->validator->errors()], 422);
+        }
     }
-}
 
     public function destroy($id)
     {
-        $event = Event::findOrFail($id);
+        $event = Event::where('event_reminder_id_from_browser', $id)->where('created_by', Auth::user()->id)->with('participants')->first();
+        $event->participants()->delete();
         $event->delete();
-        return response()->json(null, 204);
+        return response()->json([
+        'message' => 'Event deleted successfully',
+        'status'  => 200
+]);
+
     }
 
     public function addParticipant(Request $request, $eventId)
