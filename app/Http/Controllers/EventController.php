@@ -1,9 +1,13 @@
 <?php
 namespace App\Http\Controllers;
 
+use Carbon\Carbon;
 use App\Models\Event;
+use App\Models\Participant;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 class EventController extends Controller
@@ -154,42 +158,149 @@ class EventController extends Controller
         return response()->json($participant, 201);
     }
 
-    public function import(Request $request)
-    {
-        $request->validate([
-            'csv_file' => 'required|file|mimes:csv,txt',
-        ]);
+public function import(Request $request)
+{
+    $request->validate([
+        'file' => 'required|file|mimes:csv,xlsx,xls,txt'
+    ]);
+
+    try {
+        $file = $request->file('file');
+        $path = $file->getRealPath();
+
+        // Parse CSV file
+        $handle = fopen($path, 'r');
+
+        // Read headers
+        $headers = fgetcsv($handle);
+
+        // Validate headers
+        $requiredHeaders = ['name', 'startDate', 'endDate', 'participants'];
+        $missingHeaders = array_diff($requiredHeaders, $headers);
+
+        if (!empty($missingHeaders)) {
+            return response()->json([
+                'message' => 'Missing required columns: ' . implode(', ', $missingHeaders)
+            ], 422);
+        }
+
+        // Map headers to column indexes
+        $headerMap = array_flip($headers);
+
+        $importedCount = 0;
+        $errors = [];
+        $row = 2; // Start from row 2 (after headers)
+        $participantsToCreate = []; // Store participant data
+
+        DB::beginTransaction();
 
         try {
-            $file = $request->file('csv_file');
-            $path = $file->getRealPath();
+            while (($data = fgetcsv($handle)) !== false) {
+                $event_reminder_id_from_browser = (int) (microtime(true) * 10000);
 
-            // Parse CSV file
-            $handle = fopen($path, 'r');
 
-            // Read headers
-            $headers = fgetcsv($handle);
+                $rawStartDate = $data[$headerMap['startDate']] ?? '';
+                $rawEndDate = $data[$headerMap['endDate']] ?? '';
 
-            // Validate headers
-            $requiredHeaders = ['Name', 'Start Date', 'End Date', 'Participants', 'Completed'];
-            $missingHeaders  = array_diff($requiredHeaders, $headers);
+                // Convert and validate dates using Carbon
+                try {
+                    $startDate = Carbon::parse($rawStartDate)->format('Y-m-d H:i:s');
+                } catch (\Exception $e) {
+                    $errors[] = "Row {$row}: Invalid startDate format '{$rawStartDate}'";
+                    continue;
+                }
 
-            if (! empty($missingHeaders)) {
-                return response()->json([
-                    'message' => 'Missing required columns: ' . implode(', ', $missingHeaders),
-                ], 422);
+                try {
+                    $endDate = Carbon::parse($rawEndDate)->format('Y-m-d H:i:s');
+                } catch (\Exception $e) {
+                    $errors[] = "Row {$row}: Invalid endDate format '{$rawEndDate}'";
+                    continue;
+                }
+
+                // Ensure endDate is not before startDate
+                if (Carbon::parse($endDate)->lessThan(Carbon::parse($startDate))) {
+                    $errors[] = "Row {$row}: endDate '{$endDate}' was before startDate '{$startDate}', swapping dates.";
+                    [$startDate, $endDate] = [$endDate, $startDate]; // Swap dates
+                }
+
+                $eventData = [
+                    'name' => $data[$headerMap['name']] ?? '',
+                    'event_reminder_id_from_browser' => $event_reminder_id_from_browser,
+                    'event_reminder_id' => "EVT-" . $event_reminder_id_from_browser,
+                    'startDate' => $startDate,
+                    'endDate' => $endDate,
+                    'created_by' => auth()->id()
+                ];
+
+                // Validate event data
+                $validator = Validator::make($eventData, [
+                    'name' => 'required|string|max:255',
+                    'startDate' => 'required|date',
+                    'endDate' => 'required|date|after_or_equal:startDate',
+                ]);
+
+                if ($validator->fails()) {
+                    throw new \Exception('Validation failed: ' . implode(', ', $validator->errors()->all()));
+                }
+
+                // Create event
+                $event = Event::create($eventData);
+
+                // Process participants
+                $participantsStr = $data[$headerMap['participants']] ?? '';
+                $participantEmails = array_map('trim', explode(',', $participantsStr));
+
+                foreach ($participantEmails as $email) {
+                    if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        $participantsToCreate[] = [
+                            'event_id' => $event->id,
+                            'participant_email' => $email,
+                            'created_by' => auth()->id(),
+                            'created_at' => now(),
+                            'updated_at' => now()
+                        ];
+                    } else if (!empty($email)) {
+                        $errors[] = "Row {$row}: Invalid email format '{$email}'";
+                    }
+                }
+
+                $importedCount++;
+                $row++;
             }
 
-            // Map headers to column indexes
-            $headerMap = array_flip($headers);
+            // Batch insert participants
+            if (!empty($participantsToCreate)) {
+                foreach (array_chunk($participantsToCreate, 1000) as $chunk) {
+                    Participant::insert($chunk);
+                }
+            }
 
-            $importedCount = 0;
-            $errors        = [];
-            $row           = 2; // Start from row 2 (after headers)
-        } catch (\Exception $e) {
+            DB::commit();
+
             return response()->json([
-                'message' => 'Import failed: ' . $e->getMessage(),
-            ], 500);
+                'message' => 'Import completed successfully',
+                'imported_count' => $importedCount,
+                'participants_count' => count($participantsToCreate),
+                'warnings' => $errors
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Import failed',
+                'errors' => ["Row {$row}: " . $e->getMessage()]
+            ], 422);
+        }
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Import failed: ' . $e->getMessage()
+        ], 500);
+    } finally {
+        if (isset($handle)) {
+            fclose($handle);
         }
     }
+}
+
 }
