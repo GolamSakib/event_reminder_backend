@@ -84,52 +84,51 @@ class EventController extends Controller
         return response()->json($event);
     }
 
-public function update(Request $request, $id)
-{
-    try {
-        $validated = $request->validate([
-            'id'           => 'required|numeric',
-            'name'         => 'required|string|max:255',
-            'startDate'    => 'required|date',
-            'endDate'      => 'required|date',
-            'participants' => 'sometimes|array',
-            'completed'    => 'sometimes|boolean',
-        ]);
+    public function update(Request $request, $id)
+    {
+        try {
+            $validated = $request->validate([
+                'id'           => 'required|numeric',
+                'name'         => 'required|string|max:255',
+                'startDate'    => 'required|date',
+                'endDate'      => 'required|date',
+                'participants' => 'sometimes|array',
+                'completed'    => 'sometimes|boolean',
+            ]);
 
-        $event = Event::updateOrCreate(
-            ['event_reminder_id_from_browser' => $id,
-             'created_by'=> Auth::user()->id,
-            ],
-            [
-                'event_reminder_id' => 'EVT-' . $validated['id'],
-                'name'              => $validated['name'],
-                'created_by'        => Auth::id(),
-                'startDate'         => $validated['startDate'],
-                'endDate'           => $validated['endDate'],
-                'completed'         => $validated['completed'] ?? false,
-            ]
-        );
+            $event = Event::updateOrCreate(
+                ['event_reminder_id_from_browser' => $id,
+                    'created_by'                      => Auth::user()->id,
+                ],
+                [
+                    'event_reminder_id' => 'EVT-' . $validated['id'],
+                    'name'              => $validated['name'],
+                    'created_by'        => Auth::id(),
+                    'startDate'         => $validated['startDate'],
+                    'endDate'           => $validated['endDate'],
+                    'completed'         => $validated['completed'] ?? false,
+                ]
+            );
 
-        if ($request->has('participants')) {
-            $event->participants()->delete();
-            foreach ($request->participants as $participant) {
-                $event->participants()->create([
-                    'participant_email' => $participant,
-                    'created_by'        => Auth::user()->id,
-                ]);
+            if ($request->has('participants')) {
+                $event->participants()->delete();
+                foreach ($request->participants as $participant) {
+                    $event->participants()->create([
+                        'participant_email' => $participant,
+                        'created_by'        => Auth::user()->id,
+                    ]);
+                }
             }
+
+            return response()->json([
+                'message' => 'Event updated successfully',
+                'status'  => 200,
+                'data'    => $event,
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json(['error' => $e->validator->errors()], 422);
         }
-
-
-        return response()->json([
-            'message' => 'Event updated successfully',
-            'status'  => 200,
-            'data'    => $event,
-        ]);
-    } catch (ValidationException $e) {
-        return response()->json(['error' => $e->validator->errors()], 422);
     }
-}
 
     public function destroy($id)
     {
@@ -137,9 +136,9 @@ public function update(Request $request, $id)
         $event->participants()->delete();
         $event->delete();
         return response()->json([
-        'message' => 'Event deleted successfully',
-        'status'  => 200
-]);
+            'message' => 'Event deleted successfully',
+            'status'  => 200,
+        ]);
 
     }
 
@@ -153,5 +152,44 @@ public function update(Request $request, $id)
         $event       = Event::findOrFail($eventId);
         $participant = $event->participants()->create($request->only(['name', 'email']));
         return response()->json($participant, 201);
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt',
+        ]);
+
+        try {
+            $file = $request->file('csv_file');
+            $path = $file->getRealPath();
+
+            // Parse CSV file
+            $handle = fopen($path, 'r');
+
+            // Read headers
+            $headers = fgetcsv($handle);
+
+            // Validate headers
+            $requiredHeaders = ['Name', 'Start Date', 'End Date', 'Participants', 'Completed'];
+            $missingHeaders  = array_diff($requiredHeaders, $headers);
+
+            if (! empty($missingHeaders)) {
+                return response()->json([
+                    'message' => 'Missing required columns: ' . implode(', ', $missingHeaders),
+                ], 422);
+            }
+
+            // Map headers to column indexes
+            $headerMap = array_flip($headers);
+
+            $importedCount = 0;
+            $errors        = [];
+            $row           = 2; // Start from row 2 (after headers)
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Import failed: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }
