@@ -24,9 +24,9 @@ class SendEventEmails extends Command
      */
     public function handle()
     {
-        $events = Event::where('startDate', '>', now())
-        ->where('startDate', '<=', now()->addMinutes(5))
-        ->where('is_notification_sent', 0)
+        $events = Event::whereDate('startDate', now()) // Ensure the event is today
+        ->whereBetween('startDate', [now()->subMinutes(10), now()->addMinutes(5)]) // Start date is between now-10 min and now+5 min
+        ->where('is_notification_sent', 0) // Only events that haven't sent a notification
         ->get();
 
 
